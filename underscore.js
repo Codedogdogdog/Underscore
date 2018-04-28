@@ -78,7 +78,7 @@
   //对无法遍历的对象，使用该方法遍历
   function collectNonEnumProps(obj, keys) {
     var nonEnumIdx = nonEnumerableProps.length;
-    var constructor = obj.constructor;
+    var constructor = obj.constructor;  // 如果obj只是对象的话并没有contructor，会向原型链找obj._proto_.constructor
     var proto = (_.isFunction(constructor) && constructor.prototype) || ObjProto;
 
     var prop = 'constructor';
