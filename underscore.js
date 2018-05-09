@@ -31,7 +31,7 @@
     exports._ = _;
   } else {
     root._ = _;
-  };
+  }
   _.VERSION = '1.8.2';  // 当前版本
 
   // 内部函数，返回一个有效版本的回调函数使其在其它Underscore函数中能被重复调用.
@@ -57,7 +57,13 @@
       return func.apply(context, arguments);
     };
   };
-  // 一个内部函数可以生成应用于集合中的每个元素的回调，返回期望的结果--标识、任意回调、 属性匹配器或者属性访问器.
+  /**
+   * 一个内部函数可以生成应用于集合中的每个元素的回调，返回期望的结果--标识、任意回调、 属性匹配器或者属性访问器.
+   * @param {*} value 
+   * @param {*} context 
+   * @param {*} argCount 
+   * @return 若value为null则返回一个返回自身的函数, 若是function则返回优化后的函数，若是object则返回是否匹配函数，否则返回一个返回该key的value的函数
+   */
   var cb = function(value, context, argCount) {
     if(value === null) return _.identity;
     if(_.isFunction(value)) return optimizeCb(value, context, argCount);
@@ -91,7 +97,8 @@
     return result;
   }
   var MAX_ARRAY_INDEX = Math.pow(2, 53) - 1;  //数组最大索引
-  // 用以判断是否是类数组对象
+  // 用以判断是否是类数组对象, 在使用中存在一个问题：当对象存在length属性且满足条件时，返回为true，但是没对这些对象做遍历
+  // 看了接下来的代码，这里的函数是用来判断对象是否是数组的，但是这时候就有上面的问题了，所以我觉得得加上obj instance of Array 或者使用 nativeIsArray
   var isArrayLike = function(collection) {
     var length = collection && collection.length;
     return typeof length == 'number' && length >= 0 && length <= MAX_ARRAY_INDEX;
@@ -125,7 +132,7 @@
    * @param obj 对象
    * @param iteratee 遍历器
    * @param context 引用上下文对象，可选，用于改变this指向
-   * @return {Array}
+   * @return {Array} 需要将遍历结果保存在数组中返回
    */
   _.map = _.collect = function(obj, iteratee, context) {
     iteratee = optimizeCb(iteratee, context);
@@ -139,12 +146,52 @@
     }
     return results;
   };
+  // 创建一个左或右迭代的Reduce函数
+  function createReduce(dir) {
+    function iterator(obj, iteratee, memo, keys, index, length) {
+      for(; index >= 0 && index < length; index += dir) {
+        var currentKey = keys ? keys[index] : index;
+        memo = iteratee(memo, obj[currentKey], currentKey, obj);
+      }
+      return memo;
+    }
+
+    return function(obj, iteratee, memo, context) {
+      iteratee = optimizeCb(iteratee, context, 4);
+      var keys = !isArrayLike(obj) && _.keys(obj),
+          length = (keys || obj).length,
+          index = dir > 0 ? 0 : length - 1; // dir正负决定执行顺序，是正序还是逆序
+      // 如果没有提供初始值则默认为0
+      if(arguments.length < 3) {
+        // 有疑问？ 如果是类数组对象不是就GG了？ 经过测试，如果对象中含有length属性且满足条件，输出结果均为undefined，是个BUG。
+        memo = obj[keys ? keys[index] : index];
+        index += dir;
+      }
+      return iterator(obj, iteratee, memo, keys, index, length);
+    };
+  }
+  _.reduce = _.foldl = _.inject = createReduce(1);
+
+  _.reduceRight = _.foldr = createReduce(-1);
+  /**
+   * 返回第一个通过函数的值
+   * @param obj 对象
+   * @param predicate
+   * @param context 引用上下文对象，可选，用于改变this指向
+   * @return {}
+   */
+  _.find = _.detect = function(obj, predicate, context) {
+    var key;
+    if(isArrayLike(obj)) {
+      key = _.findIndex(obj, predicate, context);
+    }
+  }
   // 优化isFunction方法，isFunction方法在旧的v8引擎，IE 11和Safari 8中运行有bug.
   if (typeof /./ != 'function' && typeof Int8Array != 'object') {
     _.isFunction = function(obj) {
       return typeof obj == 'function' || false;
     };
-  };
+  }
   /**
    * 对象函数(OBJECT FUNCTIONS)
    */
@@ -167,7 +214,8 @@
       };
     };
   };
-
+  // 在传入对象中指定一个给定的对象和所有自己的属性
+  _.extendOwn = _.assign = createAssigner(_.keys);
   // 检索对象自身属性的键名(keys)
   _.keys = function(obj) {
     if(!_.isObject(obj)) return []; // 判断参数是否是对象，不是则返回[]
@@ -194,6 +242,21 @@
     var type = typeof obj;
     return type === 'function' || type === 'object' && !!obj;
   };
+  /**
+   * 数组函数(ARRAY FUNCTIONS)
+   */
+  // 生成创建findIndex和findLastIndex函数
+  function createIndexFinder(dir) {
+    return function(array, predicate, context) {
+      predicate = cb(predicate, context);
+      var length = array != null && array.length,
+          index = dir > 0 ? 0 : length - 1;
+      for(; index >= 0 && index < length; index += dir) {
+        if(predicate(array[index], index, array)) return index;
+      }
+      return -1;
+    };
+  }
   /**
    * 公用函数(UTILITY FUNCTIONS)
    */
