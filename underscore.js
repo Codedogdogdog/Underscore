@@ -103,14 +103,15 @@
     var length = collection && collection.length;
     return typeof length == 'number' && length >= 0 && length <= MAX_ARRAY_INDEX;
   };
+
   /**
    * 集合函数(COLLECTION FUNCTIONS)
    */
   /**
    * 对对象中的每个属性调用指定的方法进行遍历
-   * @param obj 对象
-   * @param iteratee 遍历器
-   * @param context 引用上下文对象，可选，用于改变this指向
+   * @param {Object} obj 对象
+   * @param {Function} predicate 用于真值测试的函数
+   * @param {Object} context 引用上下文对象，可选，用于改变this指向
    */
   _.each = _.forEach = function(obj, iteratee, context) {
     iteratee = optimizeCb(iteratee, context);
@@ -129,9 +130,9 @@
   };
   /**
    * 遍历每个对象属性，并将其结果保存在数组中返回
-   * @param obj 对象
-   * @param iteratee 遍历器
-   * @param context 引用上下文对象，可选，用于改变this指向
+   * @param {Object} obj 对象
+   * @param {Function} predicate 用于真值测试的函数
+   * @param {Object} context 引用上下文对象，可选，用于改变this指向
    * @return {Array} 需要将遍历结果保存在数组中返回
    */
   _.map = _.collect = function(obj, iteratee, context) {
@@ -174,24 +175,88 @@
 
   _.reduceRight = _.foldr = createReduce(-1);
   /**
-   * 返回第一个通过函数的值
-   * @param obj 对象
-   * @param predicate
-   * @param context 引用上下文对象，可选，用于改变this指向
-   * @return {}
+   * 返回第一个通过真值测试的值
+   * @param {Object} obj 对象
+   * @param {Function} predicate 用于真值测试的函数
+   * @param {Object} context 引用上下文对象，可选，用于改变this指向
+   * @return {*} 返回obj对象中的一个属性，若无则返回false;
    */
   _.find = _.detect = function(obj, predicate, context) {
     var key;
     if(isArrayLike(obj)) {
       key = _.findIndex(obj, predicate, context);
+    } else{
+      key = _.findKey(obj, predicate, context);
     }
-  }
+    if(key !== void 0 && key !== -1) return obj[key];
+  };
+  /**
+   * 将所有满足真值测试的属性保存在数组中返回
+   * @param {Object} obj 对象
+   * @param {Function} predicate 用于真值测试的函数
+   * @param {Object} context 引用上下文对象，可选，用于改变this指向
+   * @return {Array}
+   */
+  _.filter = _.select = function(obj, predicate, context) {
+    var results = [];
+    predicate = cb(predicate, context);
+    _.each(obj, function(value, index, list) {
+      if(predicate(value, index, list)) results.push(value);
+    });
+    return results;
+  };
+  /**
+   * 将所有不满足真值测试的属性保存在数组中返回
+   * @param {Object} obj 对象
+   * @param {Function} predicate 用于真值测试的函数
+   * @param {Object} context 引用上下文对象，可选，用于改变this指向
+   * @return {Array}
+   */
+  _.reject = function(obj, predicate, context) {
+    return _.filter(obj, _.negate(cb(predicate)), context);
+  };
+  /**
+   * 判断obj中所有属性是否满足，如果obj中所有属性均通过真值测试(即predicate均返回true), 则返回true， 否则返回false
+   * @param {Object} obj 对象
+   * @param {Function} predicate 用于真值测试的函数
+   * @param {Object} context 引用上下文对象，可选，用于改变this指向
+   * @return {Boolean}
+   */
+  _.every = _.all = function(obj, predicate, context) {
+    predicate = cb(predicate, context);
+    var keys = !isArrayLike(obj) && _.keys(obj),
+        length = (keys || obj).length;
+    for(var index = 0; index < length; index++) {
+      var currentKey = keys ? keys[index] : index;
+      if(!predicate(obj[currentKey], currentKey, obj)) return false;
+    }
+    return true;
+  };
+  /**
+   * 判断obj中是否有属性通过真值测试(即predicate有一个返回true), 则返回true， 否则返回false
+   * @param {Object} obj 对象
+   * @param {Function} predicate 用于真值测试的函数
+   * @param {Object} context 引用上下文对象，可选，用于改变this指向
+   * @return {Boolean}
+   */
+  _.some = _.any = function(obj, predicate, context) {
+    predicate = cb(predicate, context);
+    var keys = !isArrayLike(obj) && _.keys(obj),
+        length = (keys || obj).length;
+    for(var index = 0; index < length; index++) {
+      var currentKey = keys ? keys[index] : index;
+      if(predicate(obj[currentKey], currentKey, obj)) return true;
+    }
+    return false;
+  };
+
   // 优化isFunction方法，isFunction方法在旧的v8引擎，IE 11和Safari 8中运行有bug.
   if (typeof /./ != 'function' && typeof Int8Array != 'object') {
     _.isFunction = function(obj) {
       return typeof obj == 'function' || false;
     };
   }
+
   /**
    * 对象函数(OBJECT FUNCTIONS)
    */
@@ -216,6 +281,15 @@
   };
   // 在传入对象中指定一个给定的对象和所有自己的属性
   _.extendOwn = _.assign = createAssigner(_.keys);
+  // 返回第一个通过predicate test的key(键名)
+  _.findKey = function(obj, predicate, context) {
+    predicate = cb(predicate, context);
+    var keys = _.keys(obj), key;
+    for(var i = 0, length = keys.length; i < length; i++) {
+      key = keys[i];
+      if(predicate(obj[key], key, obj)) return key;
+    }
+  }
   // 检索对象自身属性的键名(keys)
   _.keys = function(obj) {
     if(!_.isObject(obj)) return []; // 判断参数是否是对象，不是则返回[]
@@ -242,6 +316,7 @@
     var type = typeof obj;
     return type === 'function' || type === 'object' && !!obj;
   };
+
   /**
    * 数组函数(ARRAY FUNCTIONS)
    */
@@ -256,6 +331,21 @@
       }
       return -1;
     };
+  }
+  // 返回数组上的第一个通过predicate test(也可称为真值测试)的索引值
+  _.findIndex = createIndexFinder(1);
+  // 顾名思义，返回最后一个通过oredicate test的索引值
+  _.findLastIndex = createIndexFinder(-1);
+  
+
+  /**
+   * 功能函数(FUNCTION FUNCTIONS)
+   */
+  _.negate = function(predicate) {
+    return function() {
+      // 将predicate函数的返回值取反
+      return !predicate.apply(this, arguments);
+    }
   }
   /**
    * 公用函数(UTILITY FUNCTIONS)
