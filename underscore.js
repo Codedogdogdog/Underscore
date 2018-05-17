@@ -249,13 +249,14 @@
     }
     return false;
   };
-
-  // 优化isFunction方法，isFunction方法在旧的v8引擎，IE 11和Safari 8中运行有bug.
-  if (typeof /./ != 'function' && typeof Int8Array != 'object') {
-    _.isFunction = function(obj) {
-      return typeof obj == 'function' || false;
-    };
-  }
+  /**
+   * 确定数组或对象是否包含指定值
+   */
+  _.contains = _.includes = _.include = function(obj, target, fromIndex) {
+    if(!isArrayLike(obj)) obj = _.values(obj);
+    return _.indexOf(obj, target, typeof fromIndex == 'number' && fromIndex) > 0;
+  };
+  _.invoke 
 
   /**
    * 对象函数(OBJECT FUNCTIONS)
@@ -300,6 +301,16 @@
     if(hasEnumBug) collectNonEnumProps(obj, keys);
     return keys;
   };
+  // 检索对象自身属性的键值(values)
+  _.values = function(obj) {
+    var keys = _.keys(obj);
+    var length = keys.length;
+    var values = Array(length);
+    for(var i = 0; i < length; i++) {
+      values[i] = obj[keys[i]];
+    }
+    return values;
+  };
   // 判断对象是否拥有给定的键值对
   _.isMatch = function(object, attrs) {
     var keys = _.keys(attrs), length = keys.length;
@@ -316,6 +327,16 @@
     var type = typeof obj;
     return type === 'function' || type === 'object' && !!obj;
   };
+  // 判断给定值是否为NaN
+  _.isNaN = function(obj) {
+    return _.isNumber(obj) && obj !== +obj;
+  };
+  // 优化isFunction方法，isFunction方法在旧的v8引擎，IE 11和Safari 8中运行有bug.
+  if (typeof /./ != 'function' && typeof Int8Array != 'object') {
+    _.isFunction = function(obj) {
+      return typeof obj == 'function' || false;
+    };
+  }
 
   /**
    * 数组函数(ARRAY FUNCTIONS)
@@ -336,7 +357,32 @@
   _.findIndex = createIndexFinder(1);
   // 顾名思义，返回最后一个通过oredicate test的索引值
   _.findLastIndex = createIndexFinder(-1);
-  
+  // 返回其在数组中第一次出现的位置，如果数组中不存在则返回-1，如果数组很大并且已经按照排序顺序排列，则设置isSorted=true使用二分查找。
+  _.indexOf = function(array, item, isSorted) {
+    var i = 0, length = array && array.length;
+    if(typeof isSorted == 'number') {
+      i = isSorted < 0 ? Math.max(0, length + isSorted) : isSorted;
+    } else if(isSorted && length) {
+      i = _.sortedIndex(array, item);
+      return array[i] === item ? i : -1;
+    }
+    if(item !== item) {
+      return _.findIndex(slice.call(array, i), _.isNaN);
+    }
+    for(; i < length; i++) if(array[i] === item) return i;
+    return -1;
+  }
+  // 二分查找. 使用比较函数来计算出应该插入对象的最小索引，以保持顺序。使用二进制搜索。
+  _.sortedIndex = function(array, obj, iteratee, context) {
+    iteratee = cb(iteratee, context, 1);
+    var value = iteratee(obj);
+    var low = 0, high = array.length;
+    while(low < high) {
+      var mid = Math.floor((low + high) / 2);
+      if(iteratee(array[mid]) < value) low = mid + 1; else high = mid;
+    }
+    return low;
+  }
 
   /**
    * 功能函数(FUNCTION FUNCTIONS)
