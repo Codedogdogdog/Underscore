@@ -73,8 +73,8 @@
     if(_.isObject(value)) return _.matcher(value);
     return _.property(value);
   };
-  // 一个用于创建分配器功能的内部函数, 目前作用好像就是返回一个合并函数
-  var createAssigner = function(keysFunc, undefinedOnly) {
+  // 一个用于创建分配器功能的内部函数, 目前作用好像就是返回一个合并函数 extends?
+  var re = function(keysFunc, undefinedOnly) {
     return function(obj) {
       var length = arguments.length;
       if(length < 2 || obj == null) return obj;
@@ -768,8 +768,83 @@
     }
     return range;
   }
-
-
+  /**
+   * 功能函数(FUNCTION FUNCTIONS)
+   */
+  // 决定将一个函数作为构造函数执行还是作为普通带参函数执行
+  var execueteBound = function(sourceFunc, boundFunc, context, callingContext, args) {
+    if(!(callingContext instanceof boundFunc)) return sourceFunc.apply(context, args);
+    var self = baseCreate(sourceFunc.prototype);
+    var result = sourceFunc.apply(self, args);
+    if(_.isObject(result)) return result;
+    return self;
+  }
+  _.negate = function(predicate) {
+    return function() {
+      // 将predicate函数的返回值取反
+      return !predicate.apply(this, arguments);
+    }
+  }
+  /**
+   * 创建一个绑定到给定对象的函数（可选地指定this和arguments），即为ES5的bind实现，只是实现了向前兼容
+   * @param {Function} func 执行函数
+   * @param {Object} context 上下文对象
+   * @return {Function | Error}
+   */
+  _.bind = function(func, context) {
+    if(nativeBind && func.bind === nativeBind) return nativeBind.apply(func, slice.call(arguments, 1));
+    if(!_.isFunction(func)) throw new TypeError('Bind must be called on a function.');
+    var args = slice.call(arguments, 2);
+    var bound = function() {
+      return execueteBound(func, bound, context, this, args.concat(slice.call(arguments)));
+    };
+    return bound;
+  };
+  /**
+   * 不懂该方法作用是什么？
+   * @param {Function} func 执行函数
+   */
+  _.partial = function(func) {
+    var boundArgs = slice.call(arguments, 1);
+    var bound = function() {
+      var position = 0, length = boundArgs.length;
+      var args = Array(length);
+      for(var i = 0; i < length; i++) {
+        args[i] = boundArgs[i] === _ ? arguments[position++] : boundArgs[i];
+      }
+      while(position < arguments.length) args.push(arguments[position++]);
+      return execueteBound(func, bound, this, this, args);
+    };
+    return bound;
+  };
+  /**
+   * 将多个对象方法绑定到对象中，并且确保this指向不变
+   * @param {Object} obj 对象
+   */
+  _.bindAll = function(obj) {
+    var i, length = arguments.length, key;
+    if(length < 1) throw new Error('bindAll must be passed function names');
+    for(i = 1; i < length; i++) {
+      key = arguments[i];
+      obj[key] = _.bind(obj[key], obj);
+    }
+    return obj;
+  };
+  /**
+   * 记忆一个函数将其保存到memoize中？作用是？？
+   * @param {Function} func 记忆函数
+   * @param {*} hasher 
+   */
+  _.memoize = function(func, hasher) {
+    var memoize = function(key) {
+      var cache = memoize.cache;
+      var address = '' + (hasher ? hasher.apply(this, arguments) : key);
+      if(!_.has(cache, address)) cache[address] = func.apply(this, arguments);
+      return cache[address];
+    };
+    memoize.cache = {};
+    return memoize;
+  }
   /**
    * 对象函数(OBJECT FUNCTIONS)
    */
@@ -792,23 +867,24 @@
       };
     };
   };
-  // 在传入对象中指定一个给定的对象和所有自己的属性
-  _.extendOwn = _.assign = createAssigner(_.keys);
-  // 返回第一个通过predicate test的key(键名)
-  _.findKey = function(obj, predicate, context) {
-    predicate = cb(predicate, context);
-    var keys = _.keys(obj), key;
-    for(var i = 0, length = keys.length; i < length; i++) {
-      key = keys[i];
-      if(predicate(obj[key], key, obj)) return key;
-    }
-  }
   // 检索对象自身属性的键名(keys)
   _.keys = function(obj) {
     if(!_.isObject(obj)) return []; // 判断参数是否是对象，不是则返回[]
     if(nativeKeys) return nativeKeys(obj);  // 判断是否支持ES5方法
     var keys = [];
     for(var key in obj) if(_.has(obj, key)) key.push(key);  // 判断是否是自身的属性，而不是原型链上的属性
+
+    if(hasEnumBug) collectNonEnumProps(obj, keys);
+    return keys;
+  };
+  /**
+   * 检索对象的所有属性名称
+   * @param {Object} obj 对象
+   */
+  _.allKeys = function(obj) {
+    if(!_.isObject(obj)) return [];
+    var keys = [];
+    for(var key in obj) keys.push(key);
 
     if(hasEnumBug) collectNonEnumProps(obj, keys);
     return keys;
@@ -823,6 +899,135 @@
     }
     return values;
   };
+  /**
+   * 给对象赋予map方法，方便遍历返回
+   * @param {Object} obj 对象
+   * @param {Function}} iteratee 遍历器
+   * @param {Object} context 上下文对象
+   */
+  _.mapObject = function(obj, iteratee, context) {
+    iteratee = cb(iteratee, context);
+    var keys = _.keys(obj),
+        length = keys.length,
+        results = {},
+        currentKey;
+    for(var index = 0; index < length; index++) {
+      currentKey = keys[index];
+      results[currentKey] = iteratee(obj[currentKey], currentKey, obj);
+    }
+    return results;
+  };
+  /**
+   * 将对象转换为[key，value]键值对列表。
+   * @param {Object} obj 对象
+   */
+  _.pairs = function(obj) {
+    var keys = _.keys(obj),
+        length = keys.length,
+        pairs = Array(length);
+    for(var i = 0; i < length; i++) {
+      pairs[i] = [keys[i], obj[keys[i]]];
+    }
+    return pairs;
+  };
+  /**
+   * 反转对象的键和值，值必须可序列化
+   * @param {Object} obj 对象
+   */
+  _.invert = function(obj) {
+    var result = {};
+    var keys = _.keys(obj);
+    for(var i = 0, length = keys.length; i < length; i++) {
+      result[obj[keys[i]]] = keys[i];
+    }
+    return result;
+  };
+  /**
+   * 返回对象中的方法，并且将其排序
+   */
+  _.functions = _.methods = function(obj) {
+    var names = [];
+    for(var key in obj) {
+      if(_.isFunction(obj[key])) names.push(key);
+    }
+    return names.sort();
+  };
+  _.extend = re(_.allKeys);
+  // 在传入对象中指定一个给定的对象和所有自己的属性
+  _.extendOwn = _.assign = re(_.keys);
+  /**
+   * 返回第一个通过predicate test的key(键名)
+   * @param {Object} obj 对象
+   * @param {Function} predicate 真值测试
+   * @param {Object} context 上下文对象
+   */
+  _.findKey = function(obj, predicate, context) {
+    predicate = cb(predicate, context);
+    var keys = _.keys(obj), key;
+    for(var i = 0, length = keys.length; i < length; i++) {
+      key = keys[i];
+      if(predicate(obj[key], key, obj)) return key;
+    }
+  };
+  /**
+   * 返回仅包含白名单属性的对象的副本
+   * @param {Object} object 对象
+   * @param {Function} oiteratee 遍历器
+   * @param {Object} context 上下文对象
+   */
+  _.pick = function(object, oiteratee, context) {
+    var result = {}, obj = object, iteratee, keys;
+    if(obj == null) return result;
+    if(_.isFunction(oiteratee)) {
+      keys = _.allKeys(obj);
+      iteratee = optimizeCb(oiteratee, context);
+    } else {
+      keys = flatten(arguments, false, false, 1);
+      iteratee = function(value, key, obj) { return key in obj; };
+      obj = Object(obj);
+    }
+    for(var i = 0, length = keys.length; i < length; i++) {
+      var key = keys[i];
+      var value = obj[key];
+      if(iteratee(value, key, obj)) result[key] = value;
+    }
+    return result;
+  };
+  /**
+   * 返回没有黑名单属性的对象的副本
+   * @param {Object} obj 对象
+   * @param {Function} iteratee 遍历器
+   * @param {Object} context 上下文对象
+   */
+  _.omit = function(obj, iteratee, context) {
+    if(_.isFunction(iteratee)) {
+      iteratee = _.negate(iteratee);
+    } else {
+      var keys = _.map(flatten(arguments, false, false, 1), String);
+      iteratee = function(value, key) {
+        return !_.contains(keys, key);
+      };
+    }
+    return _.pick(obj, iteratee, context);
+  };
+  _.defaults = re(_.allKeys, true);
+  /**
+   * 返回克隆对象
+   * @param {Object} obj 对象
+   */
+  _.clone = function(obj) {
+    if(!_.isObject(obj)) return obj;
+    return _.isArray(obj) ? obj.slice() : _.extend({}, obj);
+  };
+  /**
+   * 创建一个拦截器
+   * @param {Object} obj 对象
+   * @param {Function} interceptor 拦截器
+   */
+  _.tap = function(obj, interceptor) {
+    interceptor(obj);
+    return obj;
+  };
   // 判断对象是否拥有给定的键值对
   _.isMatch = function(object, attrs) {
     var keys = _.keys(attrs), length = keys.length;
@@ -834,59 +1039,237 @@
     }
     return true;
   };
-  // 判断变量是否是对象
-  _.isObject = function(obj) {
-    var type = typeof obj;
-    return type === 'function' || type === 'object' && !!obj;
-  };
-  // 判断给定值是否为NaN
-  _.isNaN = function(obj) {
-    return _.isNumber(obj) && obj !== +obj;
-  };
   // 优化isFunction方法，isFunction方法在旧的v8引擎，IE 11和Safari 8中运行有bug.
   if (typeof /./ != 'function' && typeof Int8Array != 'object') {
     _.isFunction = function(obj) {
       return typeof obj == 'function' || false;
     };
   }
-  // 反转对象的键和值，值必须可序列化
-  _.invert = function(obj) {
-    var result = {};
-    var keys = _.keys(obj);
-    for(var i = 0, length = keys.length; i < length; i++) {
-      result[obj[keys[i]]] = keys[i];
+  
+  // 判断两值是否相等
+  var eq = function(a, b, aStack, bStack) {
+    // 若严格相等则基本认为相同
+    // 唯一例外：0与-0，此时只要通过1 / 0 === 1 / -0判断即可，因为一个返回Infinity一个返回-Infinity
+    if(a === b) return a !== 0 || 1 / a === 1 / b;
+    // 对null与undefined进行判断？
+    if(a == null || b == null) return a === b;
+    // 若a,b 为 _ 实例，则返回实例化对象
+    if(a instanceof _) a = a._wrapped;
+    if(b instanceof _) b = b._wrapped;
+
+    var className = toString.call(a);
+    if(className !== toString.call(b)) return false;
+    switch(className) {
+    case '[object RegExp]':
+    case '[object String]':
+      return '' + a === '' + b;
+    case '[object Number]':
+      if(+a !== +a) return +b !== +b;
+      return +a === 0 ? 1 / +a === 1 / +b : +a === +b;
+    case '[object Date]':
+    case '[object Boolean]':
+      return +a === +b;
     }
-    return result;
+
+    var areArrays = className === '[object Array]';
+    if(!areArrays) {
+      if(typeof a != 'object' || typeof b != 'object') return false;
+
+      var aCtor = a.constructor, bCtor = b.constructor;
+      if(aCtor !== bCtor && !(_.isFunction(aCtor) && aCtor instanceof aCtor && _.isFunction(bCtor) && bCtor instanceof bCtor) && ('constructor' in a && 'constructor' in b)) {
+        return false;
+      }
+    }
+    // 初始化遍历对象的堆栈。我们只需要它们用于对象和数组比较。
+    aStack = aStack || [];
+    bStack = bStack || [];
+    var length = aStack.length;
+    while(length--) {
+      if(aStack[length] === a)  return bStack[length] === b;
+    }
+    // 将第一个对象添加到遍历对象的堆栈中
+    aStack.push(a);
+    bStack.push(b);
+    // 对数组和对象分开遍历
+    if(areArrays) {
+      length = a.length;
+      if(length !== b.length) return false;
+
+      while(length--) {
+        if(!eq(a[length], b[length], aStack, bStack)) return false;
+      }
+    } else {
+      var keys = _.keys(a), key;
+      length = keys.length;
+
+      if(_.keys(b).length !== length) return false;
+
+      while(length--) {
+        key = keys[length];
+        if(!(_.has(b, key) && eq(a[key], b[key], aStack, bStack))) return false;
+      }
+    }
+
+    aStack.pop();
+    bStack.pop();
+    return true;
+  };
+  /**
+   * 比较两个变量是否相等
+   * @param {*} a 比较的第一个值
+   * @param {*} b 比较的第二个值
+   * @return {Boolean}
+   */
+  _.isEqual = function(a, b) {
+    return eq(a, b);
+  }
+  /**
+   * 判断给定的Array | Object | String是否为空
+   * @param {Array | Object | String}} obj 
+   * @return {Boolean}
+   */
+  _.isEmpty = function(obj) {
+    if(obj == null) return true;
+    if(isArrayLike(obj) && (_.isArray(obj) || _.isString(obj) || _.isArguments(obj))) return obj.length === 0;
+  };
+  /**
+   * 判断对象是否是DOM元素 !涨知识了，第一次知道DOM元素nodeType === 1
+   * @param {*} obj
+   * @return {Boolean}
+   */
+  _.isElement = function(obj) {
+    return !!(obj && obj.nodeType === 1);
+  };
+  /**
+   * 判断变量是否是数组
+   * @param {*} obj
+   * @return {Boolean}
+   */
+  _.isArray = nativeIsArray || function(obj) {
+    return toString.call(obj) === '[object Array]';
+  };
+  /**
+   * 判断变量是否是对象
+   * @param {*} obj
+   * @return {Boolean}
+   */
+  _.isObject = function(obj) {
+    var type = typeof obj;
+    return type === 'function' || type === 'object' && !!obj;
+  };
+  // 遍历赋予类型判断方法
+  _.each(['Arguments', 'Function', 'String', 'Number', 'Date', 'RegExp', 'Error'], function(name) {
+    _['is' + name] = function(obj) {
+      return toString.call(obj) === '[oject ' + name + ']';
+    };
+  });
+  if(!(_.isArguments(arguments))) {
+    _.isArguments = function(obj) {
+      return _.has(obj, 'callee');
+    };
+  }
+  // 优化Function检查，解决在旧V8引擎、IE11以及Safari 8中出现的BUG
+  if (typeof /./ != 'function' && typeof Int8Array != 'object') {
+    _.isFunction = function(obj) {
+      return typeof obj == 'function' || false;
+    };
+  }
+  /**
+   * 判断给定值是否是有限数
+   * @param {*} obj
+   * @return {Boolean}
+   */
+  _.isFinite = function(obj) {
+    // 学到了，内置isFinite方法可以判断是否是有限数
+    return isFinite(obj) && !isNaN(parseFloat(obj));
+  }
+  /**
+   * 判断给定值是否为NaN
+   * @param {*} obj
+   * @return {Boolean}
+   */
+  _.isNaN = function(obj) {
+    return _.isNumber(obj) && obj !== +obj;
+  };
+  /**
+   * 判断给定值是否为布尔值
+   * @param {*} obj
+   * @return {Boolean}
+   */
+  _.isBoolean = function(obj) {
+    return obj === true || obj === false || toString.call(obj) === '[object Boolean]';
+  }
+  /**
+   * 判断给定值是否为Null
+   * @param {*} obj 
+   * @return {Boolean}
+   */
+  _.isNull = function(obj) {
+    return obj === null;
+  }
+  /**
+   * 判断给定值是否为Undefined
+   * @param {*} obj 
+   * @return {Boolean}
+   */
+  _.isUndefined = function(obj) {
+    return obj === void 0;
+  }
+  /**
+   * 判断给定值是否包含该key（不包括原型链）
+   * @param {*} obj 
+   * @return {Boolean}
+   */
+  _.has = function(obj, key) {
+    return obj != null && hasOwnProperty.call(obj, key);
   }
 
-  /**
-   * 功能函数(FUNCTION FUNCTIONS)
-   */
-  _.negate = function(predicate) {
-    return function() {
-      // 将predicate函数的返回值取反
-      return !predicate.apply(this, arguments);
-    }
-  }
+
   /**
    * 公用函数(UTILITY FUNCTIONS)
    */
+  // 防止使用underscore造成冲突？？
+  _.noConflict = function() {
+    root._ = previousUnderscore;
+    return this;
+  }
   // 保持默认迭代
   _.identity = function(value) {
     return value;
   };
+  // 不就是Curry化么？ 给underscore外部使用
+  _.constant = function(value) {
+    return function() {
+      return value;
+    };
+  };
+  // emmm，没看懂为啥这么整，想要直接创建不行么？
+  _.noop = function() {};
   // 返回一个key函数，用以返回对象key所对应的value
   _.property = function(key) {
     return function(obj) {
       return obj == null ? void 0 : obj[key];
     }
   }
+  // 所以这跟上面就一个差别，先传key还是先传obj的区别。。。
+  _.propertyOf = function(obj) {
+    return obj == null ? function() {} : function(key) {
+      return obj[key];
+    };
+  };
   // 返回一个判断函数，判断对象是否拥有给定的键值对
   _.matcher = _.matches = function(attrs) {
     attrs = _.extendOwn({}, attrs);
     return function(obj) {
       return _.isMatch(obj, attrs);
     }
+  };
+  // 运行遍历器n次
+  _.times = function(n, iteratee, context) {
+    var accum = Array(Math.max(0, n));
+    iteratee = optimizeCb(iteratee, context, 1);
+    for(var i = 0; i < n; i++) accum[i] = iteratee(i);
+    return accum;
   };
   // 返回一个介于min~max的随机值。 这个max - min + 1理论上会超过max？并不会，Math.random返回的是不包含1的0~1的数，而Math.floor会向下取整，所以最大值也就只是20
   _.random = function(min, max) {
@@ -910,4 +1293,6 @@
     '`': '&#x60;'
   };
   var unescapeMap = _.invert(escapeMap);
+
+  
 }.call(this))
